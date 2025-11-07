@@ -1,0 +1,24 @@
+<network>
+  <name>{{ name }}</name>
+  {%if description %}
+  <description>{{ description }}</description>
+  {% endif %}
+  {%if forward %}
+  <forward mode='{{ forward }}'/>
+  {% endif %}
+  <bridge name='{{ bridge }}' stp='on' delay='0'/>
+  <ip address='{{ ip_address }}' netmask='{{ netmask }}'>
+    {% if dhcp %}
+    <dhcp>
+      <range start='{{ dhcp.start }}' end='{{ dhcp.end }}'/>
+    </dhcp>
+    {% endif %}
+    {% if routes %}
+    <routes>
+      {% for r in routes %}
+      <route address='{{ r.addr }}' prefix='{{ r.prefix }}' gateway='{{ r.gw }}'/>
+      {% endfor %}
+    </routes>
+    {% endif %}
+  </ip>
+</network>
