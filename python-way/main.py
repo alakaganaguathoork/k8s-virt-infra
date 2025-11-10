@@ -1,21 +1,18 @@
-from pathlib import Path
-
 from connection import Connection
-from helpers.parser import render
 
 if __name__ == '__main__':
-    # conn = Connection('qemu')
-    # conn.openConnection()
-    # conn.create_dir('config')
-    # conn.closeConnection()
 
-    source_path: Path = '../templates'
-    values_path: Path = '../values.yml'
-    output_path: Path = '../generated'
+    hypervisor = "qemu"
+    source_path = '../templates'
+    values_path = '../values.yml'
+    output_path = '../generated'
 
-    render(
-        'networks',
-        source_path, 
-        'network.xml.jinja2', 
-        values_path, 
-        output_path)
+    
+    with Connection(
+        hypervisor,
+        source_path,
+        output_path,
+        values_path
+    ) as conn:
+        conn.create_infra()
+    

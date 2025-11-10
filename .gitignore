@@ -1,0 +1,9 @@
+bash-way/disks/
+bash-way/configs/
+
+generated/
+
+
+python-way/.venv
+python-way/**/__pycache__
+*.qcow2
