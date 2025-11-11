@@ -38,4 +38,4 @@ networks:
     autostart: true
     routes: []   # optional extra routes
 
-vm: pass   
+vms: pass   

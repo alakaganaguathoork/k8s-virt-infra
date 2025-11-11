@@ -1,9 +1,9 @@
 from typing import Optional, Type
 from pathlib import Path
-
 import libvirt
 
-from helpers.parser import _load_values, render
+from helpers.parser import load_values, render_resource
+
 
 class Connection:
 
@@ -16,12 +16,20 @@ class Connection:
         ):
         self.connection = None
         self.uri = self._resolve_uri(hypervisor)
-        self.source_path = source_path
-        self.output_path = output_path
-        self.values_path = values_path
+        self.source_path = Path(source_path)
+        self.output_path = Path(output_path)
+        self.values = load_values(Path(values_path))
 
-    
-    def __enter__(self) -> "Connection":
+
+    @staticmethod
+    def _resolve_uri(hv: str)-> str:
+        hv = hv.lower()
+
+        if hv in ('qemu', 'kvm'):
+            return 'qemu:///system'
+        raise ValueError(f"Unsupported hypervisor: {hv}")
+        
+    def __enter__(self) -> 'Connection':
         self._open()
         return self
 
@@ -52,63 +60,93 @@ class Connection:
                 self.connection.close()
             finally:
                 self.connection = None
-        print(f"Connection has been closed.")
+        print('Connection has been closed.')
 
-    @staticmethod
-    def _resolve_uri(hv: str)-> str:
-        hv = hv.lower()
 
-        if hv in ("qemu", "kvm"):
-            return "qemu:///system"
-        raise ValueError(f"Unsupported hypervisor: {hv}")
-    
-    def create_infra(self) -> None:
-        values = Path(self.values_path)
-        if not values.is_file():
-            raise FileNotFoundError(f"Values file not found: {values}")
-        for type in _load_values(values):
-            print(f"Starting {type} using {values} values...")
-            self.start(type)
-
-    def start(self, type) -> None:
-        match type:
-            case "networks":
-                print(f"Starting networks...")
-                self.start_networks()
-            # case "vms":
-            # case "lb":
-
-    def start_networks(self) -> None:
-        networks = _load_values(self.values_path, "networks")
-        template_name = "network.xml.jinja2"
-
+    def get_network(self, name: str) -> libvirt.virNetwork:
         existing_active = set(self.connection.listNetworks())
         existing_defined = set(self.connection.listDefinedNetworks())
+        network = None
 
-        render(
-            "networks",
-            self.source_path,
-            template_name, 
-            self.values_path, 
-            self.output_path)
+        if name in existing_active or name in existing_defined:
+            print(f"{name} network already exists.")
+            network = self.connection.networkLookupByName(name)
+        
+        print(f"{name} network doesn't exist.")        
+        return network
 
-        for network in networks:
-            name = network.get("name")
-            print(f"Generating {network} network...")
-            if name in existing_active or name in existing_defined:
-                net = self.connection.networkLookupByName(name)
-                if net.isActive() != 1:
-                    net.create()
-                    print(f"Existing {name} network was started.")
-                if not net.autostart():
-                    net.setAutostart(1)
-                continue
-            
-            xml = Path(f"{self.output_path}/networks/{name}.xml").read_text(encoding="utf-8")
+    def create_infra(self) -> None:
+        print('Starting infra...')
+        for type in self.values:
+            self.start(type)
+
+    def destroy_infra(self) -> None:
+        print('Destroying infra...')
+        for type in self.values:
+            self.destroy(type)
+
+    def start(self, type: str) -> None:
+        match type:
+            case 'networks':
+                print('Starting networks...')
+                for item in self.values['networks']:
+                    print(item)
+                    name = item.get('name')
+                    self.start_network(name, item)
+            # case 'vms':
+                # print('TBD VMS')
+            # case 'lb':
+                # print('TBD LB')
+    
+    def destroy(self, type: str) -> None:
+        match type:
+            case 'networks':
+                print('Destroying networks...')
+                for network in self.values['networks']:
+                    name = network.get('name')
+                    self.destroy_network(name)
+                Path(f"{self.output_path}/networks").rmdir()
+            # case 'vms':
+                # print('TBD VMS DESTRUCTION IS UNDER CONSTRUCTION')
+            # case 'lb':
+                # print('TBD LB DESTRUCTION IS UNDER CONSTRUCTION')
+        # self.output_path.rmdir()
+
+
+    def start_network(self, name: str, item: dict) -> None:
+        template_name = 'network.xml.jinja2'
+        net = self.get_network(name)
+        out_path = f"{self.output_path}/networks"
+
+        if net is not None:
+            if net.isActive() != 1:
+                net.create()
+                print(f"Existing {name} network was started.")
+            if not net.autostart():
+                net.setAutostart(1)
+        else:
+            render_resource(
+                source_path=self.source_path,
+                template_name=template_name, 
+                values=item, 
+                output_path=out_path
+                )    
+            xml = Path(f"{out_path}/{name}.xml").read_text(encoding='utf-8')
             net = self.connection.networkDefineXML(xml)
 
             if net is None:
-                raise RuntimeError("networkDefineXML returned `None`")
-            net.setAutostart(1)
-            net.create()
-            print(f"Network {name} was created.")
+                raise RuntimeError('networkDefineXML returned `None`')
+            else:
+                net.setAutostart(1)
+                net.create()
+                print(f"Network {name} was created and started.")
+    
+    def destroy_network(self, name: str) -> None:
+        net = self.get_network(name)
+        xml = Path(f"{self.output_path}/networks/{name}.xml")
+        if net is not None:
+            net.destroy()
+            net.undefine()
+            xml.unlink()
+            print(f"{name} network was destroyed.")
+        
